@@ -9,10 +9,13 @@ class AVService {
     this.sentimentUrl = sentimentUrl;
     this.kafka = new Kafka({
       clientId: 'content-extractor-service',
-      brokers: process.env.KAFKA_BROKERS.split(','), // Ensure this is set correctly in your .env file
+      brokers: process.env.KAFKA_BROKERS
     });
 
-    this.consumer = this.kafka.consumer({ groupId: 'avdoc-group' });
+    this.consumer = this.kafka.consumer({ 
+      groupId: 'avdoc-group',
+      autoCommit: true
+     });
   }
 
   async processAvDocMessage(message, topicName) {
