@@ -25,7 +25,7 @@ class ContentExtractorUtils {
   static async sentimentAnalysis(text, languageId, translationUrl, sentimentUrl) {
     try {
       if (!text || !ContentExtractorUtils.acceptedLanguages.includes(languageId)) {
-        return 'neutral';
+        return 'Neutral';
       }
 
       const payload = {
@@ -38,10 +38,10 @@ class ContentExtractorUtils {
         },
       });
 
-      return response.data.sentiment || 'neutral';
+      return response.data.sentiment || 'Neutral';
     } catch (e) {
       logger.error(`Error while analyzing the sentiment: ${e.message}`);
-      return 'neutral';
+      return 'Neutral';
     }
   }
 

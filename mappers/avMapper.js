@@ -2,14 +2,18 @@ const contentExtractorUtils = require('../utils/contentExtractorUtils');
 const logger = require('../config/logger');
 
 class AvMapper {
-  static async mapToAvDoc(message, translationUrl, sentimentUrl) {
+  static async mapToAvDoc(avDoc, translationUrl, sentimentUrl) {
     try {
-      const avDoc = JSON.parse(message);
 
+      logger.info("Translating content");
       avDoc.translation = await contentExtractorUtils.translateContent(avDoc.content, avDoc.languageId, translationUrl);
-      avDoc.titleTranslation = await contentExtractorUtils.translateContent(avDoc.title, avDoc.languageId, translationUrl);
-      avDoc.contentSentiment = await contentExtractorUtils.sentimentAnalysis(avDoc.content, avDoc.languageId, translationUrl, sentimentUrl);
 
+      logger.info("Translating title");
+      avDoc.titleTranslation = await contentExtractorUtils.translateContent(avDoc.title, avDoc.languageId, translationUrl);
+      logger.info("Doing Sentiment analysis ");
+      avDoc.contentSentiment = await contentExtractorUtils.sentimentAnalysis(avDoc.title, avDoc.languageId, translationUrl, sentimentUrl);
+      avDoc.connector = "AVConnector";
+      logger.info("Mapping complete");
       return avDoc;
     } catch (e) {
       logger.error(`Error while mapping to AVDoc: ${e.message}`);
