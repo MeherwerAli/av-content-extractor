@@ -25,7 +25,7 @@ class ContentExtractorUtils {
   static async sentimentAnalysis(text, languageId, translationUrl, sentimentUrl) {
     try {
       if (!text || !ContentExtractorUtils.acceptedLanguages.includes(languageId)) {
-        return 'neutral';
+        return 'Neutral';
       }
 
       const payload = {
@@ -38,10 +38,10 @@ class ContentExtractorUtils {
         },
       });
 
-      return response.data.sentiment || 'neutral';
+      return response.data.sentiment || 'Neutral';
     } catch (e) {
       logger.error(`Error while analyzing the sentiment: ${e.message}`);
-      return 'neutral';
+      return 'Neutral';
     }
   }
 
@@ -65,6 +65,84 @@ class ContentExtractorUtils {
       throw new Error(e.message);
     }
   }
+
+  static async extractData(nerUrl, doc) {
+    if (!doc.content || doc.content.trim() === '') {
+      return doc; // Return early if content is empty
+    }
+
+    try {
+      const nerResponse = await ContentExtractorUtils.performNER(
+        doc.content,
+        ['person', 'location', 'organization'],
+        0.3,
+        true,
+        nerUrl
+      );
+
+      const entities = nerResponse?.entities || [];
+
+      const locations = [];
+      const persons = [];
+      const organizations = [];
+
+      entities.forEach(entity => {
+        const entityType = entity.entity;
+        const word = entity.word;
+
+        switch (entityType) {
+          case 'location':
+            locations.push(word);
+            break;
+          case 'person':
+            persons.push(word);
+            break;
+          case 'organization':
+            organizations.push(word);
+            break;
+        }
+      });
+
+      doc.namedEntitiesLocations = locations;
+      doc.namedEntitiesPersons = persons;
+      doc.namedEntitiesOrganizations = organizations;
+
+      return doc; // Explicitly return the modified document
+    } catch (error) {
+      console.error('Error performing NER:', error);
+      throw error;
+    }
+  }
+
+  static async performNER(content, types, threshold, filter, nerUrl) {
+    try {
+      // Construct the data with the correct field names as expected by the server
+      const data = JSON.stringify({
+        text: content,
+        labels: types.join(', '), // Join the array to match "labels" format
+        threshold: threshold,
+        nested_ner: filter
+      });
+  
+      // Define the axios config similar to Postman
+      const config = {
+        method: 'post',
+        maxBodyLength: Infinity,
+        url: `${nerUrl}`, // Add 'http://' if not already included
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        data: data // Use data explicitly formatted as JSON
+      };
+  
+      const response = await axios.request(config);
+      return response.data;
+    } catch (error) {
+      console.error('Error in NER request:', error);
+      throw error;
+    }
+  }
+  
 }
 
 module.exports = ContentExtractorUtils;

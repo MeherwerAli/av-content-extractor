@@ -8,10 +8,11 @@ if (process.env.NODE_ENV !== 'production') {
     dotenv.config({ path: path.join(__dirname, '..', 'config', 'config.env') });
 }
 
-const translationUrl = process.env.TRANSLATION_URL || 'http://172.181.60:5001/translate';
-const sentimentUrl = process.env.SENTIMENT_URL || 'http://172.181.60:5002/analyze';
+const translationUrl = process.env.TRANSLATION_URL || 'http://172.18.1.60:5001/translate';
+const sentimentUrl = process.env.SENTIMENT_URL || 'http://172.18.1.60:5002/analyze';
+const nerUrl = process.env.NER_URL || 'http://172.18.1.60:5004/ner';
 
-const avService = new AVService(translationUrl, sentimentUrl);
+const avService = new AVService(translationUrl, sentimentUrl, nerUrl);
 
 avService.start().then(() => {
   logger.info('Kafka listener started and listening to av-scrapper-topic.');
