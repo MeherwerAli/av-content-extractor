@@ -86,14 +86,14 @@ class ContentExtractorUtils {
       );
       const entities = nerResponse?.entities || [];
 
-      // Use Sets to ensure uniqueness
+      // Use Sets to ensure uniqueness and store entities in uppercase
       const locations = new Set();
       const persons = new Set();
       const organizations = new Set();
 
       entities.forEach(entity => {
         const entityType = entity.entity;
-        const word = entity.word;
+        const word = entity.word.toUpperCase(); // Convert word to uppercase
 
         switch (entityType) {
           case 'location':
@@ -113,7 +113,7 @@ class ContentExtractorUtils {
       doc.namedEntitiesPersons_mvs = Array.from(persons);
       doc.namedEntitiesOrganizations_mvs = Array.from(organizations);
 
-      // Log the unique entities
+      // Log the unique entities in uppercase
       logger.info(`Locations: ${Array.from(locations)}`);
       logger.info(`Organizations: ${Array.from(organizations)}`);
       logger.info(`Persons: ${Array.from(persons)}`);
@@ -124,6 +124,7 @@ class ContentExtractorUtils {
       throw error;
     }
   }
+
 
 
   static async performNER(content, types, threshold, filter, nerUrl) {
