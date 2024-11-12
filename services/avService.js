@@ -2,15 +2,14 @@ const { Kafka } = require('kafkajs');
 const avMapper = require('../mappers/avMapper');
 const elasticsearchClient = require('../config/elasticsearchClient');
 const logger = require('../config/logger');
-
-
+const pLimit = require('p-limit');  // Concurrency limiter
 
 class AVService {
-  constructor(translationUrl, sentimentUrl, nerUrl) {
+  constructor(translationUrl, sentimentUrl, nerUrl, concurrencyLimit = 20) {  // Set a concurrency limit
     this.translationUrl = translationUrl;
     this.sentimentUrl = sentimentUrl;
     this.nerUrl = nerUrl;
-    console.log("KAFA Broker ", process.env.KAFKA_BROKERS);
+
     this.kafka = new Kafka({
       clientId: 'content-extractor-service',
       brokers: process.env.KAFKA_BROKERS.split(',')
@@ -18,84 +17,80 @@ class AVService {
 
     this.consumer = this.kafka.consumer({
       groupId: 'avdoc-group',
-      autoCommit: true,
-      autoOffsetReset: 'earliest'  // Start from the earliest offset if no offset is committed
+      autoCommit: false,
+      autoOffsetReset: 'earliest',
+      sessionTimeout: 60000,           // Increased to reduce rebalance frequency
+      heartbeatInterval: 5000,         // Regular heartbeats to prevent timeouts
+      maxPollInterval: 300000          // Matches long-running batch process
     });
+
+    this.concurrencyLimit = pLimit(concurrencyLimit); // Set concurrency limit for API calls
   }
 
-  async processAvDocMessage(message, topicName) {
-    try {
+  async processMessage(message, topicName) {
+    const avDoc = JSON.parse(message);
+    
+    if (!avDoc.timeDelimStart || !avDoc.timeDelimEnd) {
+      logger.warn("Skipping invalid message: timeDelimStart or timeDelimEnd is missing.");
+      return;
+    }
 
-      const avDoc = JSON.parse(message);
-
-
-      if (!avDoc.timeDelimStart || !avDoc.timeDelimEnd) {
-        throw new Error("Invalid message: timeDelimStart or timeDelimEnd is missing.");
-      }
-
-      // Check if the document with the same timeDelimStart and timeDelimEnd already exists
-      const existingDoc = await elasticsearchClient.search({
-        index: 'av_docs',
-        body: {
-          query: {
-            bool: {
-              must: [
-                { match: { timeDelimStart: avDoc.timeDelimStart } },
-                { match: { timeDelimEnd: avDoc.timeDelimEnd } }
-              ]
-            }
+    // Check for existing document
+    const existingDoc = await elasticsearchClient.search({
+      index: 'av_docs',
+      body: {
+        query: {
+          bool: {
+            must: [
+              { match: { timeDelimStart: avDoc.timeDelimStart } },
+              { match: { timeDelimEnd: avDoc.timeDelimEnd } },
+              { match: { sourceId: avDoc.sourceId } },
+            ]
           }
         }
-      });
-
-      // If a document exists, log a message and return
-      if (existingDoc.hits.total.value > 0) {
-        logger.info(`Document with timeDelimStart ${avDoc.timeDelimStart} and timeDelimEnd ${avDoc.timeDelimEnd} already exists. Skipping indexing.`);
-        return;
       }
-      logger.info("Consuming new message");
-      const avDocMapped = await avMapper.mapToAvDoc(avDoc, this.translationUrl, this.sentimentUrl, this.nerUrl);
-      logger.info(`Consumed message from topic ${topicName}: ${JSON.stringify(avDocMapped)}`);
-      await this.pushToElasticsearch(avDocMapped);
-    } catch (e) {
-      logger.error(`Failed to process message from topic ${topicName}: ${e.message}`);
-      throw e;
+    });
+
+    if (existingDoc.hits.total.value > 0) {
+      logger.info(`Document with sourceId >> ${avDoc.sourceId}, timeDelimStart ${avDoc.timeDelimStart} and timeDelimEnd ${avDoc.timeDelimEnd} already exists. Skipping.`);
+      return;
     }
+
+    // Process mapping with external APIs (translation, sentiment, etc.)
+    const avDocMapped = await avMapper.mapToAvDoc(avDoc, this.translationUrl, this.sentimentUrl, this.nerUrl);
+    await this.pushToElasticsearch(avDocMapped);
+  }
+
+  async processBatch(messages, topicName) {
+    const processPromises = messages.map(({ value }) =>
+      this.concurrencyLimit(() => this.processMessage(value.toString(), topicName))
+    );
+
+    await Promise.all(processPromises);
   }
 
   async pushToElasticsearch(avDoc) {
     try {
+      logger.info("Pushing document to Elasticsearch");
 
-      logger.info("Pushing to elastic Search");
-      // If no document exists, proceed to index the new document
       const response = await elasticsearchClient.index({
         index: 'av_docs',
-        body: avDoc,
+        body: avDoc
       });
 
-      // Log the entire response for debugging purposes
-      logger.info(`Elasticsearch response: ${JSON.stringify(response)}`);
-
-      // Check if the response contains the '_id' field
       if (response && response._id) {
         logger.info(`Indexed document with id: ${response._id}`);
-        // Retrieve the Elasticsearch _id and add it as a new field 'id' in the document
-        const documentId = response._id;
-        avDoc.id = documentId;
+        avDoc.id = response._id;
 
-        // Update the document in Elasticsearch with the new 'id' field
         await elasticsearchClient.update({
           index: 'av_docs',
-          id: documentId,
-          body: {
-            doc: avDoc
-          }
+          id: avDoc.id,
+          body: { doc: avDoc }
         });
       }
-
-    } catch (e) {
-      logger.error(`Error while pushing to Elasticsearch: ${e.message}`);
-      throw new Error(e);
+    } catch (error) {
+      logger.error(`Error while pushing to Elasticsearch: ${error.message}`);
+      throw error;
     }
   }
 
@@ -104,14 +99,19 @@ class AVService {
     await this.consumer.subscribe({ topic: 'av-scrapper-topic', fromBeginning: false });
 
     await this.consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        console.log(`Received message`);
-        try {
-          const decodedMessage = message.value.toString();
-          await this.processAvDocMessage(decodedMessage, topic);
-        } catch (error) {
-          console.error(`Error processing message: ${error.message}`, error);
+      eachBatch: async ({ batch, resolveOffset, heartbeat }) => {
+        logger.info(`Processing batch of ${batch.messages.length} messages`);
+
+        await this.processBatch(batch.messages, batch.topic);
+
+        for (const message of batch.messages) {
+          resolveOffset(message.offset); // Mark the message as processed
         }
+
+        await heartbeat();
+        await this.consumer.commitOffsets([
+          { topic: batch.topic, partition: batch.partition, offset: (parseInt(batch.lastOffset(), 10) + 1).toString() }
+        ]);
       },
     });
   }

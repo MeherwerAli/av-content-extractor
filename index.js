@@ -10,7 +10,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 const translationUrl = process.env.TRANSLATION_URL || 'http://172.18.1.60:5001/translate';
 const sentimentUrl = process.env.SENTIMENT_URL || 'http://172.18.1.60:5002/analyze';
-const nerUrl = process.env.NER_URL || 'http://172.18.1.60:5004/ner';
+const nerUrl = process.env.NER_URL || 'http://172.18.1.60:5004/extract';
 
 const avService = new AVService(translationUrl, sentimentUrl, nerUrl);
 

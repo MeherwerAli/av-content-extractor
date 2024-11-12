@@ -14,7 +14,7 @@ RUN npm install
 COPY . .
 
 # Your app binds to port 3000, so use the EXPOSE instruction to have it mapped
-EXPOSE 8096
+EXPOSE 8088
 
 # Define the command to run your app
 CMD [ "npm", "start" ]

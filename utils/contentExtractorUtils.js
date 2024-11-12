@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../config/logger');
+const { createLogger } = require('winston');
 
 class ContentExtractorUtils {
   static acceptedLanguages = ['en', 'ar', 'fr', 'fa', 'es', 'tr', 'ru', 'zh'];
@@ -22,14 +23,14 @@ class ContentExtractorUtils {
     }
   }
 
-  static async sentimentAnalysis(text, languageId, translationUrl, sentimentUrl) {
+  static async sentimentAnalysis(text, sentimentUrl) {
     try {
-      if (!text || !ContentExtractorUtils.acceptedLanguages.includes(languageId)) {
+      if (!text) {
         return 'Neutral';
       }
 
       const payload = {
-        text: languageId === 'en' ? text : await ContentExtractorUtils.translateSentence(text, languageId, 'en', translationUrl),
+        text: text 
       };
 
       const response = await axios.post(sentimentUrl, payload, {
@@ -47,6 +48,9 @@ class ContentExtractorUtils {
 
   static async translateSentence(sentence, srcLangCode, tgtLangCode, translationServiceUrl) {
     try {
+      if (srcLangCode === 'ar') {
+        return sentence;
+      }
       const payload = {
         text: sentence,
         src_lang_code: srcLangCode,
@@ -70,16 +74,15 @@ class ContentExtractorUtils {
     if (!doc.content || doc.content.trim() === '') {
       return doc; // Return early if content is empty
     }
-
+    const text = doc?.title +" " +doc.content;
     try {
       const nerResponse = await ContentExtractorUtils.performNER(
-        doc.content,
+        text,
         ['person', 'location', 'organization'],
         0.3,
         true,
         nerUrl
       );
-
       const entities = nerResponse?.entities || [];
 
       const locations = [];
@@ -102,10 +105,15 @@ class ContentExtractorUtils {
             break;
         }
       });
+      logger.info(`Locations: ${locations}`);
+      
+      logger.info(`Organizations: ${organizations}`);
+      
+      logger.info(`Persons: ${persons}`);
 
-      doc.namedEntitiesLocations = locations;
-      doc.namedEntitiesPersons = persons;
-      doc.namedEntitiesOrganizations = organizations;
+      doc.namedEntitiesLocations_mvs = locations;
+      doc.namedEntitiesPersons_mvs = persons;
+      doc.namedEntitiesOrganizations_mvs = organizations;
 
       return doc; // Explicitly return the modified document
     } catch (error) {
@@ -128,7 +136,7 @@ class ContentExtractorUtils {
       const config = {
         method: 'post',
         maxBodyLength: Infinity,
-        url: `${nerUrl}`, // Add 'http://' if not already included
+        url: `${nerUrl}`, 
         headers: {
           'Content-Type': 'application/json'
         },
