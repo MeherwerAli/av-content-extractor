@@ -74,7 +74,8 @@ class ContentExtractorUtils {
     if (!doc.content || doc.content.trim() === '') {
       return doc; // Return early if content is empty
     }
-    const text = doc?.title +" " +doc.content;
+    const text = `${doc?.title} ${doc.content}`;
+    
     try {
       const nerResponse = await ContentExtractorUtils.performNER(
         text,
@@ -85,9 +86,10 @@ class ContentExtractorUtils {
       );
       const entities = nerResponse?.entities || [];
 
-      const locations = [];
-      const persons = [];
-      const organizations = [];
+      // Use Sets to ensure uniqueness
+      const locations = new Set();
+      const persons = new Set();
+      const organizations = new Set();
 
       entities.forEach(entity => {
         const entityType = entity.entity;
@@ -95,25 +97,26 @@ class ContentExtractorUtils {
 
         switch (entityType) {
           case 'location':
-            locations.push(word);
+            locations.add(word);
             break;
           case 'person':
-            persons.push(word);
+            persons.add(word);
             break;
           case 'organization':
-            organizations.push(word);
+            organizations.add(word);
             break;
         }
       });
-      logger.info(`Locations: ${locations}`);
-      
-      logger.info(`Organizations: ${organizations}`);
-      
-      logger.info(`Persons: ${persons}`);
 
-      doc.namedEntitiesLocations_mvs = locations;
-      doc.namedEntitiesPersons_mvs = persons;
-      doc.namedEntitiesOrganizations_mvs = organizations;
+      // Convert Sets to Arrays for storage
+      doc.namedEntitiesLocations_mvs = Array.from(locations);
+      doc.namedEntitiesPersons_mvs = Array.from(persons);
+      doc.namedEntitiesOrganizations_mvs = Array.from(organizations);
+
+      // Log the unique entities
+      logger.info(`Locations: ${Array.from(locations)}`);
+      logger.info(`Organizations: ${Array.from(organizations)}`);
+      logger.info(`Persons: ${Array.from(persons)}`);
 
       return doc; // Explicitly return the modified document
     } catch (error) {
@@ -121,6 +124,7 @@ class ContentExtractorUtils {
       throw error;
     }
   }
+
 
   static async performNER(content, types, threshold, filter, nerUrl) {
     try {
