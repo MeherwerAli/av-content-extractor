@@ -51,10 +51,16 @@ class ContentExtractorUtils {
       if (srcLangCode === 'ar') {
         return sentence;
       }
+      // const payload = {
+      //   text: sentence,
+      //   src_lang_code: srcLangCode,
+      //   tgt_lang_code: tgtLangCode,
+      // };
       const payload = {
-        text: sentence,
-        src_lang_code: srcLangCode,
-        tgt_lang_code: tgtLangCode,
+        q: sentence,
+        source: srcLangCode,
+        target: tgtLangCode,
+  		  format: "text"
       };
 
       const response = await axios.post(translationServiceUrl, payload, {
@@ -63,7 +69,7 @@ class ContentExtractorUtils {
         },
       });
 
-      return response.data.translation || '';
+      return response.data.translatedText || '';
     } catch (e) {
       logger.error(`Error while translating sentence: ${e.message}`);
       throw new Error(e.message);
@@ -74,9 +80,11 @@ class ContentExtractorUtils {
     if (!doc.content || doc.content.trim() === '') {
       return doc; // Return early if content is empty
     }
+    
     const text = `${doc?.title} ${doc.content}`;
     
     try {
+      // Perform NER in one call to extract all entities together
       const nerResponse = await ContentExtractorUtils.performNER(
         text,
         ['person', 'location', 'organization'],
@@ -84,17 +92,18 @@ class ContentExtractorUtils {
         true,
         nerUrl
       );
+  
       const entities = nerResponse?.entities || [];
-
+  
       // Use Sets to ensure uniqueness and store entities in uppercase
       const locations = new Set();
       const persons = new Set();
       const organizations = new Set();
-
-      entities.forEach(entity => {
+  
+      for (const entity of entities) {
         const entityType = entity.entity;
         const word = entity.word.toUpperCase(); // Convert word to uppercase
-
+        
         switch (entityType) {
           case 'location':
             locations.add(word);
@@ -106,26 +115,24 @@ class ContentExtractorUtils {
             organizations.add(word);
             break;
         }
-      });
-
+      }
+  
       // Convert Sets to Arrays for storage
       doc.namedEntitiesLocations_mvs = Array.from(locations);
       doc.namedEntitiesPersons_mvs = Array.from(persons);
       doc.namedEntitiesOrganizations_mvs = Array.from(organizations);
-
+  
       // Log the unique entities in uppercase
       logger.info(`Locations: ${Array.from(locations)}`);
       logger.info(`Organizations: ${Array.from(organizations)}`);
       logger.info(`Persons: ${Array.from(persons)}`);
-
+  
       return doc; // Explicitly return the modified document
     } catch (error) {
-      console.error('Error performing NER:', error);
+      logger.error('Error performing NER:', error);
       throw error;
     }
   }
-
-
 
   static async performNER(content, types, threshold, filter, nerUrl) {
     try {
